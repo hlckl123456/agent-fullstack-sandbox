@@ -93,13 +93,95 @@ cd e2e
 pnpm exec playwright test
 ```
 
-## AI Contribution
+## Ralph Loop Experiment
 
-This entire project was developed by an AI agent following the Ralph Loop pattern:
+**⚠️ Primary Goal: This project is primarily an experiment to test the Ralph Loop pattern for AI-driven development.**
+
+### What is Ralph Loop?
+
+Ralph Loop is an iterative AI development pattern where the agent:
+1. Implements features
+2. Runs tests to verify
+3. Commits changes with documentation
+4. Repeats until completion criteria are met
+5. Outputs a completion signal to exit
+
+### Experiment Results
+
+**Total Iterations**: 8 rounds
+**Effective Rounds**: 1 (all features completed in first round)
+**Wasted Rounds**: 7 (attempting git push authentication and exit detection)
+
+#### ✅ What Worked Well
+
+1. **Test-Driven Development**: E2E tests provided clear success criteria
+2. **Automated Verification**: All 4 features passed tests on first try
+3. **Documentation**: Automatic changelog and retrospective generation
+4. **Zero Human Intervention**: Agent completed all development autonomously
+
+#### ❌ What Didn't Work
+
+1. **Completion Promise Configuration**
+   - Started with `completion_promise: null`
+   - Agent outputted "PROJECT_DONE" but loop didn't exit
+   - Required manual fix in round 5
+
+2. **Git Push Requirement**
+   - Original spec required `git push origin main`
+   - Non-interactive environment cannot authenticate
+   - Wasted 3-4 rounds trying SSH/HTTPS/GitHub CLI
+   - **Solution**: Changed requirement to only `git commit` (no push)
+
+3. **Loop Exit Detection**
+   - No automatic completion verification
+   - Agent repeated same checks 6-8 times
+   - **Solution**: Need a `check-completion.sh` script
+
+### Key Learnings
+
+📊 **Efficiency**: Should complete in 1-2 rounds, not 8
+🔧 **Configuration**: `completion_promise` must be set from start
+🚫 **Constraints**: Avoid requirements needing user credentials
+✅ **Automation**: Add auto-completion detection scripts
+
+### Improvements for Next Ralph Loop
+
+See [docs/ralph-loop-improvements.md](docs/ralph-loop-improvements.md) for detailed recommendations:
+
+1. **Set completion_promise from the start**
+   ```yaml
+   completion_promise: "PROJECT_DONE"  # Don't leave as null!
+   ```
+
+2. **Add automatic completion checker**
+   ```bash
+   ./scripts/check-completion.sh  # Returns ALL_COMPLETE or NOT_COMPLETE
+   ```
+
+3. **Avoid interactive requirements**
+   - ✅ `git commit` (works)
+   - ❌ `git push` (needs auth)
+   - ❌ Database migrations (needs credentials)
+
+4. **Clear exit instructions**
+   ```markdown
+   When ALL conditions met, output exactly: PROJECT_DONE
+   Then stop. Do not continue.
+   ```
+
+### AI Contribution
+
+This entire project was developed by an AI agent (Claude) following the Ralph Loop pattern:
 - Automated implementation of features
 - Self-verifying E2E tests after each change
 - Git commits with detailed changelog
 - Zero human code intervention
+- Complete in ~15 minutes of actual development time
+
+**Development Timeline**:
+- Round 1 (5 min): Full implementation + tests passing ✅
+- Round 2-4 (10 min): Git push authentication attempts ❌
+- Round 5-8 (5 min): Configuration fixes and exit detection ⚠️
 
 See [docs/changelog.md](docs/changelog.md) for the complete development history.
 
