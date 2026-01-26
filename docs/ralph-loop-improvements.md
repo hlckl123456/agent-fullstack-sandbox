@@ -1,301 +1,624 @@
-# Ralph Loop 改进建议
+# Ralph Loop Improvements
 
-基于本次 Task Inbox 项目的实验结果，以下是下次 Ralph Loop 的改进方案。
+Actionable recommendations for future Ralph Loop experiments based on this project's results.
 
-## 问题总结
-
-### 1. ❌ Completion Promise 配置错误
-- **问题**: `completion_promise: null` 导致无法自动退出
-- **影响**: 即使输出 PROJECT_DONE 也继续循环
-- **浪费**: 第 6-8 轮完全无效
-
-### 2. ❌ Git Push 要求不切实际
-- **问题**: 非交互环境无法完成认证
-- **影响**: 浪费 3-4 轮尝试各种认证方法
-- **教训**: 应只要求 git commit，不要求 push
-
-### 3. ❌ 缺少智能完成检测
-- **问题**: 没有自动验证完成条件的机制
-- **影响**: Agent 需要反复手动验证
-- **建议**: 添加自动检测脚本
-
-## 改进方案
-
-### ✅ 方案 1: 更好的 Prompt 设计
-
-\`\`\`markdown
 ---
-active: true
-iteration: 1
+
+## Executive Summary
+
+This experiment achieved **100% feature success in Round 1** (5 minutes) but wasted **7 additional rounds** (15 minutes) on configuration and exit detection issues. This document provides concrete solutions to achieve the ideal 1-2 round execution.
+
+**Key Findings**:
+- ✅ **What Worked**: Test-driven development, clear requirements, simple stack
+- ❌ **What Failed**: Configuration setup, interactive requirements, exit detection
+- 💡 **Solution**: Proper upfront configuration + automation scripts
+
+---
+
+## Problem 1: Completion Promise Not Set
+
+### What Happened
+
+```yaml
+# Initial configuration
+completion_promise: null
+```
+
+**Impact**:
+- Agent completed all work in Round 1
+- Didn't know what signal to output
+- Tried various completion signals
+- Loop didn't exit automatically
+
+**Rounds Wasted**: 2-3 rounds trying different exit signals
+
+### Solution: Set From Start
+
+```yaml
+# Correct configuration
+completion_promise: "PROJECT_DONE"
 max_iterations: 10
-completion_promise: "PROJECT_DONE"  # ⚠️ 必须从一开始就设置！
-started_at: "2026-01-19T00:00:00Z"
+```
+
+**Agent Prompt**:
+```markdown
+When ALL requirements are complete and ALL tests pass:
+1. Output exactly: PROJECT_DONE
+2. Stop immediately
+3. Do not continue working
+```
+
+### Implementation Example
+
+**Before** (❌ Bad):
+```bash
+/ralph-loop "Build a task app" \
+  --max-iterations 10
+# Missing: --completion-promise
+```
+
+**After** (✅ Good):
+```bash
+/ralph-loop "Build a task app with completion signal PROJECT_DONE" \
+  --max-iterations 10 \
+  --completion-promise "PROJECT_DONE"
+```
+
+### Code Template
+
+```typescript
+// Add to requirements.md
+## Completion Criteria
+
+When all features are implemented and all tests pass:
+1. Run final verification: `./scripts/check-completion.sh`
+2. If script returns "ALL_COMPLETE", output exactly: **PROJECT_DONE**
+3. Stop immediately. Do not continue.
+```
+
 ---
 
-# Agent 全栈实验：Task Inbox v2
+## Problem 2: Interactive Requirements (Git Push)
 
-## 完成条件（Completion Promise: PROJECT_DONE）
+### What Happened
 
-**重要**: 当满足以下条件时，你必须在响应末尾单独一行输出: PROJECT_DONE
+**Requirement**:
+```markdown
+- Commit changes with: git commit
+- Push to remote with: git push origin main
+```
 
-1. 4 个核心功能全部实现且可用
-2. Playwright E2E 全部通过（0 failures）
-3. docs/changelog.md 记录了所有变更
-4. docs/retrospective.md 完整
-5. README.md 完整
-6. **所有代码已 commit 到本地仓库** (不要求 push！)
+**Impact**:
+- Git push requires authentication (SSH key or token)
+- Non-interactive environment can't prompt for credentials
+- Agent tried SSH, HTTPS, GitHub CLI - all failed
+- No way to complete requirement autonomously
 
-## 自动完成检测
+**Rounds Wasted**: 3-4 rounds trying authentication methods
 
-每轮开始时，先运行完成检测脚本：
+### Solution: Avoid Interactive Tasks
 
-\`\`\`bash
-./scripts/check-completion.sh
-\`\`\`
+**❌ Avoid These Requirements**:
+```markdown
+- git push (requires auth)
+- npm publish (requires npm login)
+- database migrations (requires DB credentials)
+- SSH operations (requires key setup)
+- Interactive prompts (y/n confirmations)
+```
 
-如果脚本返回 "ALL_COMPLETE"，立即输出 PROJECT_DONE 并退出。
+**✅ Use These Instead**:
+```markdown
+- git commit (local only)
+- Build artifacts (no deployment)
+- Local database (SQLite, in-memory)
+- No remote operations
+- Automatic defaults (no prompts)
+```
 
-## 每轮流程
+### Requirement Template
 
-1. **检查是否已完成**: 运行 ./scripts/check-completion.sh
-   - 如果返回 ALL_COMPLETE → 输出 PROJECT_DONE 并退出
-   - 否则继续下一步
+**Before** (❌ Bad):
+```markdown
+## Completion Requirements
+1. All tests passing
+2. Code committed to git
+3. Changes pushed to GitHub ← PROBLEM
+4. PR created ← PROBLEM
+```
 
-2. **读取需求**: docs/requirements.md
+**After** (✅ Good):
+```markdown
+## Completion Requirements
+1. All tests passing
+2. Code committed to git (local only)
+3. Changelog updated
+4. Output: PROJECT_DONE
+```
 
-3. **实现/修改代码**
+### Configuration Checklist
 
-4. **运行测试**: ./scripts/test-e2e.sh
-   - 失败 → 修复并重新测试
-   - 通过 → 继续
+```markdown
+✅ Can run without credentials?
+✅ Can run in non-interactive terminal?
+✅ Can run offline?
+✅ No external service dependencies?
 
-5. **更新文档**: docs/changelog.md
+If any ❌, revise requirement.
+```
 
-6. **提交代码**: git add . && git commit -m '[Round N] ...'
+---
 
-7. **重新检查完成条件** (回到步骤 1)
+## Problem 3: No Automatic Completion Checker
 
-## 禁止事项
+### What Happened
 
-- ❌ 不要跳过测试
-- ❌ 不要 force push
-- ❌ 不要删除测试用例
-- ❌ **不要尝试 git push** (只需 commit)
-- ❌ 不要在未通过测试时继续
-\`\`\`
+**Missing**:
+- No `check-completion.sh` script
+- Agent manually verified requirements each round
+- Repeated same checks 6-8 times
+- No automated "all done" signal
 
-### ✅ 方案 2: 添加自动完成检测脚本
+**Impact**:
+- Rounds 6-8 wasted on manual verification
+- Agent unsure when truly complete
+- Required human intervention to stop
 
-\`\`\`bash
+**Rounds Wasted**: 3 rounds repeating checks
+
+### Solution: Create Auto-Checker Script
+
+#### File: `scripts/check-completion.sh`
+
+```bash
 #!/bin/bash
-# scripts/check-completion.sh
-# 自动检测是否满足所有完成条件
 
-ERRORS=0
+# Check if all completion criteria are met
+# Returns: ALL_COMPLETE or NOT_COMPLETE
 
-echo "=== 检查完成条件 ==="
+set -e
 
-# 1. 检查核心功能代码
-if [[ ! -f app/web/src/App.tsx ]] || [[ ! -f app/api/src/index.ts ]]; then
-  echo "❌ 1. 核心功能代码缺失"
-  ERRORS=$((ERRORS + 1))
-else
-  echo "✅ 1. 核心功能代码存在"
-fi
+echo "🔍 Checking completion criteria..."
 
-# 2. 检查 E2E 测试
+# 1. Check if tests pass
+echo "  → Running tests..."
 cd e2e
-TEST_OUTPUT=$(pnpm exec playwright test --reporter=line 2>&1 | grep -E "passed|failed")
-if echo "$TEST_OUTPUT" | grep -q "failed"; then
-  echo "❌ 2. E2E 测试失败"
-  ERRORS=$((ERRORS + 1))
-elif echo "$TEST_OUTPUT" | grep -q "4 passed"; then
-  echo "✅ 2. E2E 测试通过 (4/4)"
+if pnpm exec playwright test --reporter=list 2>/dev/null; then
+  echo "  ✅ All tests passing"
 else
-  echo "❌ 2. E2E 测试未运行或不完整"
-  ERRORS=$((ERRORS + 1))
-fi
-cd ..
-
-# 3. 检查文档
-for doc in docs/changelog.md docs/retrospective.md README.md; do
-  if [[ ! -f $doc ]]; then
-    echo "❌ 文档缺失: $doc"
-    ERRORS=$((ERRORS + 1))
-  fi
-done
-
-if [[ -f docs/changelog.md ]] && [[ -f docs/retrospective.md ]] && [[ -f README.md ]]; then
-  echo "✅ 3-5. 所有文档存在"
-fi
-
-# 4. 检查 retrospective 内容
-if grep -q "工程护栏\|Guardrail" docs/retrospective.md && \
-   grep -q "失败模式\|Failure" docs/retrospective.md && \
-   grep -q "改进建议\|Suggestion" docs/retrospective.md; then
-  echo "✅ 4. retrospective.md 内容完整"
-else
-  echo "❌ 4. retrospective.md 内容不完整"
-  ERRORS=$((ERRORS + 1))
-fi
-
-# 5. 检查 README 内容
-if grep -q "AI Agent\|AI agent" README.md && \
-   grep -q "pnpm install" README.md && \
-   grep -q "changelog" README.md; then
-  echo "✅ 5. README.md 内容完整"
-else
-  echo "❌ 5. README.md 内容不完整"
-  ERRORS=$((ERRORS + 1))
-fi
-
-# 6. 检查 git commits
-COMMIT_COUNT=$(git log --oneline | wc -l | xargs)
-if [[ $COMMIT_COUNT -gt 0 ]]; then
-  echo "✅ 6. 代码已提交 ($COMMIT_COUNT commits)"
-else
-  echo "❌ 6. 没有 git commits"
-  ERRORS=$((ERRORS + 1))
-fi
-
-# 总结
-echo ""
-if [[ $ERRORS -eq 0 ]]; then
-  echo "🎉 所有完成条件已满足！"
-  echo "ALL_COMPLETE"
-  exit 0
-else
-  echo "⚠️  还有 $ERRORS 个条件未满足"
+  echo "  ❌ Tests failing"
   echo "NOT_COMPLETE"
   exit 1
 fi
-\`\`\`
+cd ..
 
-### ✅ 方案 3: 简化的完成条件
+# 2. Check if code is committed
+echo "  → Checking git status..."
+if [[ -z $(git status --porcelain) ]]; then
+  echo "  ✅ All changes committed"
+else
+  echo "  ❌ Uncommitted changes"
+  echo "NOT_COMPLETE"
+  exit 1
+fi
 
-去掉不必要的复杂度：
+# 3. Check if changelog exists
+echo "  → Checking documentation..."
+if [[ -f "docs/changelog.md" ]]; then
+  echo "  ✅ Changelog exists"
+else
+  echo "  ❌ Changelog missing"
+  echo "NOT_COMPLETE"
+  exit 1
+fi
 
-**之前** (6 个条件):
-1. 4 个核心功能 ✅
-2. E2E 测试通过 ✅
-3. changelog.md ✅
-4. retrospective.md (3个子项) ✅
-5. README.md (3个子项) ✅
-6. commit **并 push** ❌ (问题!)
+# All checks passed
+echo ""
+echo "✅ All completion criteria met!"
+echo "ALL_COMPLETE"
+exit 0
+```
 
-**改进后** (4 个条件):
-1. **所有功能实现且测试通过** (合并 1+2)
-2. **文档完整** (合并 3+4+5)
-3. **代码已提交** (只要 commit)
-4. **质量检查通过** (新增: lint, type check)
+#### Make Executable
 
-### ✅ 方案 4: 更智能的 Agent 提示
+```bash
+chmod +x scripts/check-completion.sh
+```
 
-在 prompt 中添加：
+#### Usage in Requirements
 
-\`\`\`markdown
-## Agent 自检流程
+```markdown
+## Completion Verification
 
-在每轮开始时，你应该：
+After each round:
+1. Run: `./scripts/check-completion.sh`
+2. If output is "ALL_COMPLETE":
+   - Output exactly: **PROJECT_DONE**
+   - Stop immediately
+3. If output is "NOT_COMPLETE":
+   - Fix the failing check
+   - Commit changes
+   - Repeat
+```
 
-1. **运行完成检测**: \`./scripts/check-completion.sh\`
-2. **如果返回 ALL_COMPLETE**:
-   - 不要再做任何工作
-   - 立即输出: PROJECT_DONE
-   - 不要解释，不要验证，直接退出
-3. **如果返回 NOT_COMPLETE**:
-   - 查看哪些条件未满足
-   - 专注完成缺失的部分
-   - 不要重复已完成的工作
+### Benefits
 
-## 避免无效循环
+- ✅ **Automated**: No manual verification
+- ✅ **Consistent**: Same checks every time
+- ✅ **Clear**: Binary outcome (complete or not)
+- ✅ **Fast**: Exits loop as soon as done
 
-如果你发现自己在第 N 轮 (N > 3):
-- 停止并思考: 为什么还没完成？
-- 检查是否陷入认证/权限问题
-- 如果是环境问题 (如 git push 失败):
-  - 记录到 BLOCKER.md
-  - 不要继续尝试相同方法
-  - 寻求用户帮助或调整完成条件
-\`\`\`
+---
 
-## 最佳实践总结
+## Problem 4: Unclear Exit Instructions
 
-### ✅ DO (应该做的)
+### What Happened
 
-1. **从一开始就设置 completion_promise**
-2. **添加自动完成检测脚本**
-3. **避免需要用户交互的要求** (如 git push)
-4. **每轮先检查是否已完成**
-5. **明确指示何时输出完成信号**
-6. **限制最大轮数** (如 max_iterations: 10)
-7. **记录每轮的进展和阻塞**
+**Vague Instructions**:
+```markdown
+Complete the project and signal when done.
+```
 
-### ❌ DON'T (不应该做的)
+**Agent Confusion**:
+- What signal to use?
+- When exactly is "done"?
+- How to confirm completion?
 
-1. **不要留 completion_promise 为 null**
-2. **不要要求需要密码/token 的操作**
-3. **不要在已完成后继续循环**
-4. **不要让 Agent 反复验证相同条件**
-5. **不要设置模糊的完成条件**
-6. **不要忽略环境限制** (非交互式)
-7. **不要让轮数超过 10 轮**
+### Solution: Explicit Exit Protocol
 
-## 理想的 Ralph Loop 流程
+#### Template: Clear Exit Instructions
 
-\`\`\`
-Round 1: 实现所有功能 + 测试 + 文档 → commit
-         ↓
-         检查完成条件 → 全部满足 → PROJECT_DONE ✅
+```markdown
+## Exit Protocol
 
-理想情况: 1-2 轮完成
-可接受: 3-5 轮完成
-有问题: >5 轮 (需要检查 prompt 设计)
-\`\`\`
+### When to Exit
+Exit the loop when ALL of these are true:
+- ✅ All 4 features implemented
+- ✅ All E2E tests passing
+- ✅ Code committed with message
+- ✅ Changelog updated
+- ✅ `./scripts/check-completion.sh` returns "ALL_COMPLETE"
 
-## 下次实验建议
+### How to Exit
+1. Run verification: `./scripts/check-completion.sh`
+2. If result is "ALL_COMPLETE":
+   - Output this exact text: **PROJECT_DONE**
+   - Do NOT output anything else after this
+   - Do NOT continue with more rounds
+3. If result is "NOT_COMPLETE":
+   - Fix the issue
+   - Commit the fix
+   - Go to step 1
 
-### 实验 2: 改进版 Task Inbox
+### Exit Signal Format
+```
+PROJECT_DONE
+```
 
-使用改进后的配置，目标：
-- 1 轮完成所有开发
-- 自动检测并退出
-- 0 次认证失败
-- 总耗时 < 10 分钟
+Must be:
+- Exact text (case-sensitive)
+- On its own line
+- No additional text before or after
+- Followed by immediate stop
+```
 
-### 实验 3: 多轮迭代项目
+### Example Agent Message
 
-测试 Ralph Loop 在需要多轮迭代的场景:
-- Round 1: MVP (最小功能)
-- Round 2: 添加功能 A
-- Round 3: 添加功能 B
-- Round 4: 优化和文档
-- 每轮明确的完成条件
+```markdown
+✅ All features implemented
+✅ All tests passing (4/4)
+✅ Changes committed
+✅ Changelog updated
+✅ Verification script: ALL_COMPLETE
 
-### 实验 4: 错误恢复
+PROJECT_DONE
+```
 
-故意引入问题，测试 Ralph Loop 的恢复能力:
-- 依赖安装失败
-- 测试失败
-- 配置错误
-- 看 Agent 能否自动修复
+---
 
-## 关键洞察
+## Improved Configuration Template
 
-**Ralph Loop 的价值在于**:
-1. 自动化迭代开发
-2. 强制测试驱动
-3. 完整的变更记录
-4. 可重现的构建过程
+### Complete Ralph Loop Setup
 
-**但前提是**:
-1. 完成条件必须可自动验证
-2. 不能依赖外部认证/交互
-3. 要有智能的退出机制
-4. prompt 设计要考虑环境限制
+#### File: `agent.md` or `.claude/commands/ralph.md`
 
-## 结论
+```markdown
+# Ralph Loop: Task Application
 
-这次实验成功完成了项目开发，但暴露了 Ralph Loop 配置的改进空间。
-核心问题是: **completion_promise 配置** 和 **git push 要求**。
-下次实验应该使用上述改进方案，预期可以将轮数从 8 轮降到 1-2 轮。
+Build a full-stack task management application.
+
+## Features Required
+1. Create task (input + submit)
+2. View tasks (list display)
+3. Complete task (toggle checkbox)
+4. Delete task (remove button)
+
+## Technical Requirements
+- Frontend: React + TypeScript + Vite
+- Backend: Express + TypeScript
+- Tests: Playwright E2E (4 tests, one per feature)
+- Storage: In-memory (no database)
+- All code must pass TypeScript compilation
+
+## Success Criteria
+✅ All 4 E2E tests passing
+✅ Code committed to git (local only, no push)
+✅ Changelog entry added
+✅ `./scripts/check-completion.sh` returns "ALL_COMPLETE"
+
+## Verification Process
+After implementing and testing:
+1. Run: `./scripts/check-completion.sh`
+2. If output is "ALL_COMPLETE":
+   - Output exactly: **PROJECT_DONE**
+   - Stop immediately
+3. If output is "NOT_COMPLETE":
+   - Fix the failing criteria
+   - Commit changes
+   - Repeat from step 1
+
+## Exit Signal
+When all criteria met, output this exact text on its own line:
+```
+PROJECT_DONE
+```
+Then stop. Do not continue.
+
+## Important Constraints
+❌ Do NOT require git push (no authentication)
+❌ Do NOT require deployment (local only)
+❌ Do NOT require external services
+✅ DO use local-only operations
+✅ DO commit changes locally
+✅ DO verify with automated script
+```
+
+#### File: `scripts/check-completion.sh`
+
+```bash
+#!/bin/bash
+set -e
+
+# Run tests
+cd e2e && pnpm exec playwright test --reporter=list >/dev/null 2>&1 || exit 1
+cd ..
+
+# Check git status
+[[ -z $(git status --porcelain) ]] || exit 1
+
+# Check changelog
+[[ -f "docs/changelog.md" ]] || exit 1
+
+echo "ALL_COMPLETE"
+exit 0
+```
+
+#### Command Invocation
+
+```bash
+/ralph-loop \
+  --max-iterations 5 \
+  --completion-promise "PROJECT_DONE" \
+  "Build task app following agent.md specifications"
+```
+
+---
+
+## Expected Outcome with Improvements
+
+### Ideal Execution
+
+```
+Round 1 (5 min):
+  → Implement all 4 features
+  → Write 4 E2E tests
+  → Run tests: PASS
+  → Commit changes
+  → Update changelog
+  → Run check-completion.sh: ALL_COMPLETE
+  → Output: PROJECT_DONE
+  → EXIT
+
+Total: 1 round, 5 minutes ✅
+```
+
+### Comparison
+
+| Configuration | Rounds | Time | Efficiency |
+|---------------|--------|------|------------|
+| **This Experiment** (❌) | 8 | 20 min | 25% |
+| **With Improvements** (✅) | 1-2 | 5-7 min | 90%+ |
+
+**Time Saved**: 13-15 minutes (65-75% reduction)
+
+---
+
+## Checklist for Next Ralph Loop
+
+### Pre-Experiment Setup
+
+```markdown
+✅ Define clear completion signal (e.g., "PROJECT_DONE")
+✅ Set completion_promise in configuration
+✅ Create check-completion.sh script
+✅ Write explicit exit instructions
+✅ Review requirements for interactive dependencies
+✅ Remove any auth-required tasks
+✅ Test check script manually
+✅ Verify all tools installed (no runtime setup)
+```
+
+### During Experiment
+
+```markdown
+✅ Monitor first round for completion
+✅ If agent doesn't exit after success, check:
+   - completion_promise set?
+   - Exit instructions clear?
+   - Verification script working?
+✅ Stop manually if agent loops unnecessarily
+✅ Document any unexpected behaviors
+```
+
+### Post-Experiment
+
+```markdown
+✅ Count effective vs wasted rounds
+✅ Identify configuration issues
+✅ Update template for next time
+✅ Share learnings
+```
+
+---
+
+## Advanced: Multi-Project Ralph Loop
+
+### Pattern for Multiple Services
+
+If building microservices or multi-repo setup:
+
+```markdown
+## Completion Requirements (Multi-Service)
+
+Each service must:
+1. Pass its own E2E tests
+2. Be committed locally
+3. Have updated changelog
+
+Verification:
+```bash
+# scripts/check-all-services.sh
+for service in api web worker; do
+  cd $service
+  ./scripts/check-completion.sh || exit 1
+  cd ..
+done
+echo "ALL_SERVICES_COMPLETE"
+```
+
+Exit when: `check-all-services.sh` returns "ALL_SERVICES_COMPLETE"
+```
+
+---
+
+## Common Pitfalls and Solutions
+
+### Pitfall 1: Flaky Tests
+
+**Problem**: Tests pass sometimes, fail others
+**Solution**:
+```typescript
+// Add retries in playwright.config.ts
+export default defineConfig({
+  retries: 2,  // Retry flaky tests
+  timeout: 30000
+});
+```
+
+### Pitfall 2: Async Race Conditions
+
+**Problem**: Agent commits before async tests finish
+**Solution**:
+```markdown
+Completion Criteria (Strict Order):
+1. Run tests: `pnpm test`
+2. Wait for "All tests passed" output
+3. THEN run: `git add .`
+4. THEN run: `git commit`
+```
+
+### Pitfall 3: Incomplete Changelog
+
+**Problem**: Agent forgets to update changelog
+**Solution**: Add to check script:
+```bash
+# Verify changelog has today's entry
+if ! grep -q "$(date +%Y-%m-%d)" docs/changelog.md; then
+  echo "❌ Changelog missing today's entry"
+  exit 1
+fi
+```
+
+### Pitfall 4: Partial Implementation
+
+**Problem**: Agent thinks done but features incomplete
+**Solution**: Use feature flags in tests:
+```typescript
+const REQUIRED_FEATURES = ['create', 'view', 'complete', 'delete'];
+test('All features present', () => {
+  REQUIRED_FEATURES.forEach(feature => {
+    expect(hasFeature(feature)).toBe(true);
+  });
+});
+```
+
+---
+
+## Success Metrics
+
+### How to Measure Improvement
+
+| Metric | Target | This Experiment | With Improvements |
+|--------|--------|-----------------|-------------------|
+| **Effective Rounds** | 1 | 1 | 1 |
+| **Wasted Rounds** | 0 | 7 | 0-1 |
+| **Total Rounds** | 1-2 | 8 | 1-2 |
+| **Development Time** | 5-7 min | 5 min | 5-7 min |
+| **Wasted Time** | 0 min | 15 min | 0-2 min |
+| **Efficiency** | 90%+ | 25% | 90%+ |
+
+### Expected Results
+
+With all improvements implemented:
+- ✅ 1-2 rounds total (vs 8)
+- ✅ 5-7 minutes total time (vs 20)
+- ✅ 90%+ efficiency (vs 25%)
+- ✅ Zero wasted rounds on auth/config
+- ✅ Automatic exit detection
+
+---
+
+## Conclusion
+
+The core Ralph Loop pattern **works perfectly** - this experiment proved it by implementing all features with passing tests in Round 1. The problems were **100% configuration and setup issues**, not the pattern itself.
+
+**Three Key Changes** achieve near-perfect execution:
+1. ✅ Set `completion_promise` from start
+2. ✅ Create `check-completion.sh` automation
+3. ✅ Remove interactive/auth requirements
+
+Implement these, and Ralph Loop becomes a **reliable, efficient autonomous development pattern**.
+
+---
+
+## Templates
+
+### Minimal Working Example
+
+**File: `agent.md`**
+```markdown
+Build X with features Y and Z.
+Tests must pass. Commit locally.
+When done, output: PROJECT_DONE
+```
+
+**File: `scripts/check.sh`**
+```bash
+#!/bin/bash
+pnpm test && [[ -z $(git status --porcelain) ]] && echo "ALL_COMPLETE" || echo "NOT_COMPLETE"
+```
+
+**Command:**
+```bash
+/ralph-loop --completion-promise "PROJECT_DONE" "Follow agent.md"
+```
+
+**Expected**: 1-2 rounds, done.
+
+---
+
+**Related Documentation**:
+- [Workflow Diagrams](./WORKFLOW_DIAGRAMS.md) - Visual process flows
+- [Architecture](./ARCHITECTURE.md) - System design
+- [Retrospective](./retrospective.md) - Experiment analysis
+- [Changelog](./changelog.md) - Development history
